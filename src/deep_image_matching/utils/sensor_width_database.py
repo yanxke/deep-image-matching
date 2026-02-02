@@ -57,7 +57,7 @@ class SensorWidthDatabase:
             reader = csv.reader(file, delimiter=";")
             for row in reader:
                 try:
-                    key = row[0].lower()
+                    key = self._normalize_key(row[0])
                     self.data[key] = float(row[1])
                 except ValueError:
                     continue
@@ -74,11 +74,15 @@ class SensorWidthDatabase:
         """
 
         # preprocess query strings
-        key = camera.lower()
+        key = self._normalize_key(camera)
         if key not in self.data:
             raise LookupError(f"Camera {key} not found in sensor database")
 
         return self.data[key]
+
+    @staticmethod
+    def _normalize_key(value: str) -> str:
+        return " ".join(value.strip().lower().split())
 
 
 if __name__ == "__main__":

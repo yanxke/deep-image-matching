@@ -340,7 +340,26 @@ class Image:
             global _SENSOR_WIDTH_DB
             if "_SENSOR_WIDTH_DB" not in globals() or _SENSOR_WIDTH_DB is None:
                 _SENSOR_WIDTH_DB = SensorWidthDatabase()
-            sensor_width_mm = _SENSOR_WIDTH_DB.lookup(self._exif_data["Image Model"])
+            image_model = self._exif_data.get("Image Model", "")
+            image_make = self._exif_data.get("Image Make", "")
+            candidates = []
+            if image_make and image_model:
+                if image_make.lower() not in image_model.lower():
+                    candidates.append(f"{image_make} {image_model}")
+            if image_model:
+                candidates.append(image_model)
+
+            sensor_width_mm = None
+            last_error = None
+            for candidate in candidates:
+                try:
+                    sensor_width_mm = _SENSOR_WIDTH_DB.lookup(candidate)
+                    break
+                except Exception as lookup_error:
+                    last_error = lookup_error
+
+            if sensor_width_mm is None:
+                raise last_error or LookupError("Camera not found in sensor database")
         except Exception as e:
             logger.debug(f"Unable to get sensor size in mm from sensor database: {e}")
             return None

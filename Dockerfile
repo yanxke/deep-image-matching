@@ -35,3 +35,11 @@ RUN uv sync --dev
 
 # Running the tests:
 RUN uv run pytest
+
+# Switch to yanxke's repo and branch yan/docker-base
+# This is done at the end of the Dockerfile to preserve the cache for 
+# the heavy dependencies already installed by the previous uv sync step.
+RUN git remote set-url origin https://github.com/yanxke/deep-image-matching.git && \
+    git fetch origin yan/docker-base && \
+    git checkout -f FETCH_HEAD && \
+    uv sync --dev
