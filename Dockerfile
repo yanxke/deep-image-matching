@@ -1,33 +1,37 @@
-FROM pytorch/pytorch:2.2.0-cuda12.1-cudnn8-runtime
-
-ARG BRANCH=master
-
-# Set environment variables
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Install system dependencies
-RUN apt-get update && \
-    apt-get install -y \
-    git \
-    curl \
-    libglib2.0-0 \
-    ffmpeg \
-    libsm6 \
-    libxext6
+FROM ubuntu:22.04
 
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-# Clone repo
-RUN git clone https://github.com/3DOM-FBK/deep-image-matching.git /workspace/dim
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV UV_COMPILE_BYTECODE=1
+ENV UV_LINK_MODE=copy
+ENV UV_PYTHON=3.11
+ENV PYTHONUNBUFFERED=1
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    ca-certificates \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libgl1 \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
 WORKDIR /workspace/dim
 
-# Checkout the specified branch
-RUN git checkout ${BRANCH}
+# Clone repo
+ARG BRANCH=master
+RUN git clone https://github.com/3DOM-FBK/deep-image-matching.git . && \
+    git checkout ${BRANCH}
 
-# Install deep-image-matching with uv
+# Install dependencies using uv
+# This will install Python and all dependencies in pyproject.toml
 RUN uv sync --dev
-RUN uv pip install pycolmap
 
 # Running the tests:
-RUN uv run pytest  
+RUN uv run pytest
