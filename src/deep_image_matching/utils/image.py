@@ -11,6 +11,7 @@ from PIL import Image as PILImage
 from .sensor_width_database import SensorWidthDatabase
 
 logger = logging.getLogger("dim")
+_SENSOR_WIDTH_DB = None
 
 
 IMAGE_EXT = [".jpg", ".JPG", ".png", ".PNG", ".tif", "TIF"]
@@ -336,10 +337,12 @@ class Image:
             logger.debug("Focal length non found in exif data.")
             return None
         try:
-            sensor_width_db = SensorWidthDatabase()
-            sensor_width_mm = sensor_width_db.lookup(self._exif_data["Image Model"])
-        except OSError:
-            logger.debug("Unable to get sensor size in mm from sensor database")
+            global _SENSOR_WIDTH_DB
+            if "_SENSOR_WIDTH_DB" not in globals() or _SENSOR_WIDTH_DB is None:
+                _SENSOR_WIDTH_DB = SensorWidthDatabase()
+            sensor_width_mm = _SENSOR_WIDTH_DB.lookup(self._exif_data["Image Model"])
+        except Exception as e:
+            logger.debug(f"Unable to get sensor size in mm from sensor database: {e}")
             return None
 
         img_w_px = self.width
