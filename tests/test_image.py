@@ -4,7 +4,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from deep_image_matching.utils.image import Image, ImageList, read_image
+from deep_image_matching.utils.image import (
+    Image,
+    ImageList,
+    _camera_lookup_candidates,
+    read_image,
+)
 
 
 @pytest.fixture
@@ -100,6 +105,19 @@ def test_raise_index_error_for_invalid_index(image_dir):
     image_list = ImageList(image_dir)
     with pytest.raises(IndexError):
         _ = image_list[10]
+
+
+def test_camera_lookup_candidates_with_vendor_suffix_make():
+    candidates = _camera_lookup_candidates("Samsung Electronics Co., Ltd.", "SM-G970U1")
+    assert "Samsung Electronics Co., Ltd. SM-G970U1" in candidates
+    assert "samsung SM-G970U1" in candidates
+    assert "SM-G970U1" in candidates
+    assert "sm-g970u1" in candidates
+
+
+def test_camera_lookup_candidates_avoids_duplicate_make_model():
+    candidates = _camera_lookup_candidates("samsung", "Samsung SM-G970U1")
+    assert candidates == ["Samsung SM-G970U1"]
 
 
 if __name__ == "__main__":
