@@ -10,8 +10,22 @@ logger = logging.getLogger("dim")
 
 
 def incremental_mapping_with_pbar(database_path, image_path, sfm_path):
-    database = pycolmap.Database.open(str(database_path))
-    num_images = database.num_images()
+    database_path = str(database_path)
+    image_path = str(image_path)
+    sfm_path = str(sfm_path)
+
+    # pycolmap API differs by version:
+    # - older versions: Database.open(path) as classmethod
+    # - newer versions: db = Database(); db.open(path) as instance method
+    try:
+        database = pycolmap.Database.open(database_path)
+    except TypeError:
+        database = pycolmap.Database()
+        database.open(database_path)
+
+    num_images_attr = database.num_images
+    num_images = num_images_attr() if callable(num_images_attr) else int(num_images_attr)
+
     with enlighten.Manager() as manager:
         with manager.counter(total=num_images, desc="Images registered:") as pbar:
             pbar.update(0, force=True)
