@@ -12,7 +12,6 @@ ENV PYTHONUNBUFFERED=1
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
     ca-certificates \
     libglib2.0-0 \
     libsm6 \
@@ -24,22 +23,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Set working directory
 WORKDIR /workspace/dim
 
-# Clone repo
-ARG BRANCH=master
-RUN git clone https://github.com/3DOM-FBK/deep-image-matching.git . && \
-    git checkout ${BRANCH}
+# Copy dependency metadata only first to maximize layer cache reuse.
+COPY pyproject.toml uv.lock ./
 
-# Install dependencies using uv
-# This will install Python and all dependencies in pyproject.toml
+# Install third-party dependencies before copying the full source tree.
+RUN uv sync --dev --no-install-project
+
+# Copy local source code.
+COPY . .
+
+# Install the local project itself (usually quick if deps are already cached).
 RUN uv sync --dev
 
-# Running the tests:
+# Run tests.
 RUN uv run pytest
-
-# Switch to yanxke's repo and branch yan/docker-base
-# This is done at the end of the Dockerfile to preserve the cache for 
-# the heavy dependencies already installed by the previous uv sync step.
-RUN git remote set-url origin https://github.com/yanxke/deep-image-matching.git && \
-    git fetch origin yan/docker-base && \
-    git checkout -f FETCH_HEAD && \
-    uv sync --dev

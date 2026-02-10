@@ -45,6 +45,8 @@ def log_error(err: Exception, method: str, fallback: bool = False) -> None:
 def geometric_verification(
     kpts0: np.ndarray = None,
     kpts1: np.ndarray = None,
+    K0: np.ndarray = None,
+    K1: np.ndarray = None,
     method: Union[str, int, GeometricVerification] = "pydegensac",
     threshold: float = 1,
     confidence: float = 0.9999,
@@ -53,19 +55,20 @@ def geometric_verification(
     **kwargs,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Computes the fundamental matrix and inliers between the two images using geometric verification.
+    Computes the geometric model (Essential matrix if intrinsics are provided for both images,
+    otherwise Fundamental matrix) and inliers between two images.
 
     Args:
         method (str): The method used for geometric verification. Can be one of ['pydegensac', 'opencv'].
         threshold (float): Pixel error threshold for considering a correspondence an inlier.
         confidence (float): The required confidence level in the results.
-        max_iters (int): The maximum number of iterations for estimating the fundamental matrix.
+        max_iters (int): The maximum number of iterations for robust model estimation.
         quiet (bool): If True, disables logging.
         **kwargs: Additional parameters for the selected method. Check the documentation of the selected method for more information. For pydegensac: https://github.com/ducha-aiki/pydegensac, for all the other OPENCV methods: https://docs.opencv.org/4.5.2/d9/d0c/group__calib3d.html#ga13f7e34de8fa516a686a56af1196247f
 
     Returns:
         [np.ndarray, np.ndarray]: A tuple containing:
-            - F: The estimated fundamental matrix.
+            - M: The estimated geometric model (E or F).
             - inlMask: a Boolean array that masks the correspondences that were identified as inliers.
 
     """
@@ -93,13 +96,57 @@ def geometric_verification(
         return None, np.ones(len(kpts0), dtype=bool)
 
     fallback = False
-    F = None
+    model = None
     inlMask = np.ones(len(kpts0), dtype=bool)
 
     if len(kpts0) < 8:
         if not quiet:
             logger.warning("Not enough matches to perform geometric verification.")
-        return F, inlMask
+        return model, inlMask
+
+    # If both camera intrinsics are available, estimate Essential matrix for verification.
+    use_essential = K0 is not None and K1 is not None
+    if use_essential:
+        try:
+            K0 = np.asarray(K0, dtype=np.float64)
+            K1 = np.asarray(K1, dtype=np.float64)
+            if K0.shape != (3, 3) or K1.shape != (3, 3):
+                raise ValueError("K0 and K1 must both be 3x3 intrinsics matrices.")
+
+            kpts0n = cv2.undistortPoints(
+                kpts0.reshape(-1, 1, 2).astype(np.float64), K0, None
+            ).reshape(-1, 2)
+            kpts1n = cv2.undistortPoints(
+                kpts1.reshape(-1, 1, 2).astype(np.float64), K1, None
+            ).reshape(-1, 2)
+
+            focal_mean = np.mean([K0[0, 0], K0[1, 1], K1[0, 0], K1[1, 1]])
+            norm_threshold = threshold / max(focal_mean, 1e-9)
+            # Essential-matrix estimation in normalized camera space converges faster;
+            # use a lower iteration cap unless explicitly overridden.
+            essential_max_iters = int(kwargs.get("essential_max_iters", 2000))
+            cv2_method = (
+                cv2.LMEDS if method == GeometricVerification.LMEDS else cv2.RANSAC
+            )
+            model, inliers = cv2.findEssentialMat(
+                kpts0n,
+                kpts1n,
+                np.eye(3),
+                method=cv2_method,
+                prob=confidence,
+                threshold=norm_threshold,
+                maxIters=essential_max_iters,
+            )
+            if inliers is None:
+                raise RuntimeError("Essential matrix estimation returned no inlier mask.")
+            inlMask = (inliers > 0).squeeze()
+            if not quiet:
+                log_result(inlMask, "ESSENTIAL")
+                logger.debug(f"Estimated Essential matrix: \n{model}")
+            return model, inlMask
+        except Exception as err:
+            fallback = True
+            log_error(err, "ESSENTIAL", fallback)
 
     if method == GeometricVerification.PYDEGENSAC:
         try:
@@ -113,7 +160,7 @@ def geometric_verification(
     if method == GeometricVerification.PYDEGENSAC and not fallback:
         try:
             params = {**pydegesac_default_params, **kwargs}
-            F, inlMask = pydegensac.findFundamentalMatrix(
+            model, inlMask = pydegensac.findFundamentalMatrix(
                 kpts0,
                 kpts1,
                 px_th=threshold,
@@ -133,7 +180,7 @@ def geometric_verification(
 
     if method == GeometricVerification.MAGSAC:
         try:
-            F, inliers = cv2.findFundamentalMat(
+            model, inliers = cv2.findFundamentalMat(
                 kpts0, kpts1, cv2.USAC_MAGSAC, threshold, confidence, max_iters
             )
             inlMask = (inliers > 0).squeeze()
@@ -149,7 +196,7 @@ def geometric_verification(
         logger.debug(f"Method was set to {method}, trying to use it from OPENCV...")
         met = opencv_methods_mapping[method.name]
         try:
-            F, inliers = cv2.findFundamentalMat(
+            model, inliers = cv2.findFundamentalMat(
                 kpts0, kpts1, met, threshold, confidence, max_iters
             )
             inlMask = (inliers > 0).squeeze()
@@ -163,7 +210,7 @@ def geometric_verification(
     # Use RANSAC as fallback
     if method == GeometricVerification.RANSAC or fallback:
         try:
-            F, inliers = cv2.findFundamentalMat(
+            model, inliers = cv2.findFundamentalMat(
                 kpts0, kpts1, cv2.RANSAC, threshold, confidence, max_iters
             )
             inlMask = (inliers > 0).squeeze()
@@ -174,9 +221,9 @@ def geometric_verification(
             inlMask = np.ones(len(kpts0), dtype=bool)
 
     if not quiet:
-        logger.debug(f"Estiamted Fundamental matrix: \n{F}")
+        logger.debug(f"Estimated Fundamental matrix: \n{model}")
 
-    return F, inlMask
+    return model, inlMask
 
 
 if __name__ == "__main__":

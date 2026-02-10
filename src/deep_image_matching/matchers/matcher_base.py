@@ -1,6 +1,7 @@
 import inspect
 import logging
 from abc import ABCMeta, abstractmethod
+from functools import lru_cache
 from itertools import product
 from pathlib import Path
 from typing import Optional, Tuple, TypedDict
@@ -18,11 +19,24 @@ from ..io.h5 import get_features, get_matches
 from ..thirdparty.hloc.extractors.superpoint import SuperPoint
 from ..thirdparty.LightGlue.lightglue import LightGlue
 from ..utils.geometric_verification import geometric_verification
-from ..utils.image import resize_image
+from ..utils.image import Image as DIMImage, resize_image
 from ..utils.tiling import Tiler
 from ..visualization import viz_matches_cv2, viz_matches_mpl
 
 logger = logging.getLogger("dim")
+
+
+def _has_camera_intrinsics(img_path: Path) -> bool:
+    return _get_camera_intrinsics(img_path) is not None
+
+
+@lru_cache(maxsize=4096)
+def _get_camera_intrinsics(img_path: Path) -> Optional[np.ndarray]:
+    try:
+        K = DIMImage(Path(img_path))._K
+        return None if K is None else np.asarray(K, dtype=float)
+    except Exception:
+        return None
 
 
 class FeaturesDict(TypedDict):
@@ -306,6 +320,24 @@ class MatcherBase(metaclass=ABCMeta):
             self.config["general"]["gv_threshold"]
             * scales[self.config["general"]["quality"]]
         )
+        K0 = _get_camera_intrinsics(img0)
+        K1 = _get_camera_intrinsics(img1)
+        has_k0 = K0 is not None
+        has_k1 = K1 is not None
+        verification_model = (
+            "Essential matrix" if has_k0 and has_k1 else "Fundamental matrix"
+        )
+        logger.debug(
+            "Intrinsics availability for pair %s-%s: %s=%s, %s=%s. "
+            "Geometric verification model: %s.",
+            img0_name,
+            img1_name,
+            img0_name,
+            has_k0,
+            img1_name,
+            has_k1,
+            verification_model,
+        )
 
         # Apply geometric verification
         _, inlMask = geometric_verification(
@@ -314,6 +346,8 @@ class MatcherBase(metaclass=ABCMeta):
             method=self.config["general"]["geom_verification"],
             threshold=gv_threshold,
             confidence=self.config["general"]["gv_confidence"],
+            K0=K0,
+            K1=K1,
         )
         num_inliers = np.sum(inlMask)
         inliers_ratio = num_inliers / len(matches)
@@ -413,6 +447,9 @@ class MatcherBase(metaclass=ABCMeta):
             logger.debug("No tile pairs selected.")
             return matches_full
 
+        K0 = _get_camera_intrinsics(img0)
+        K1 = _get_camera_intrinsics(img1)
+
         # Match each tile pair
         for tidx0, tidx1 in tile_pairs:
             logger.debug(f" - Matching tile pair ({tidx0}, {tidx1})")
@@ -432,6 +469,8 @@ class MatcherBase(metaclass=ABCMeta):
                     method=self.config["general"]["geom_verification"],
                     threshold=self.config["general"]["gv_threshold_in_tiles_matching"],
                     confidence=self.config["general"]["gv_confidence"],
+                    K0=K0,
+                    K1=K1,
                 )
 
                 true_values = inlMask.sum()
@@ -730,6 +769,24 @@ class DetectorFreeMatcherBase(metaclass=ABCMeta):
         else:
             scale_fct = np.floor(max(img_shape) / self.max_tile_size / 2)
         gv_threshold = self.config["general"]["gv_threshold"] * scale_fct
+        K0 = _get_camera_intrinsics(img0)
+        K1 = _get_camera_intrinsics(img1)
+        has_k0 = K0 is not None
+        has_k1 = K1 is not None
+        verification_model = (
+            "Essential matrix" if has_k0 and has_k1 else "Fundamental matrix"
+        )
+        logger.debug(
+            "Intrinsics availability for pair %s-%s: %s=%s, %s=%s. "
+            "Geometric verification model: %s.",
+            img0_name,
+            img1_name,
+            img0_name,
+            has_k0,
+            img1_name,
+            has_k1,
+            verification_model,
+        )
 
         # Apply geometric verification
         _, inlMask = geometric_verification(
@@ -738,6 +795,8 @@ class DetectorFreeMatcherBase(metaclass=ABCMeta):
             method=self.config["general"]["geom_verification"],
             threshold=gv_threshold,
             confidence=self.config["general"]["gv_confidence"],
+            K0=K0,
+            K1=K1,
         )
         matches = matches[inlMask]
         timer_match.update("Geom. verification")

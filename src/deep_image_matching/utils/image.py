@@ -19,45 +19,16 @@ IMAGE_EXT = [".jpg", ".JPG", ".png", ".PNG", ".tif", "TIF"]
 
 PILImage.MAX_IMAGE_PIXELS = None
 
-_MAKE_SUFFIX_TOKENS = {
-    "co",
-    "corp",
-    "corporation",
-    "electronics",
-    "gmbh",
-    "inc",
-    "limited",
-    "ltd",
-    "srl",
-}
-
 
 def _normalized_make_variants(make: str) -> list[str]:
     make = " ".join(make.strip().split())
     if not make:
         return []
 
-    variants = [make]
     tokens = re.findall(r"[a-z0-9]+", make.lower())
     if not tokens:
-        return variants
-
-    # Reduce common corporate suffixes (e.g. "Samsung Electronics Co., Ltd.")
-    # so we can still hit entries stored as "<brand> <model>".
-    brand_tokens = []
-    for token in tokens:
-        if token in _MAKE_SUFFIX_TOKENS:
-            break
-        brand_tokens.append(token)
-
-    if not brand_tokens:
-        brand_tokens = [tokens[0]]
-
-    brand_variant = " ".join(brand_tokens)
-    if brand_variant not in variants:
-        variants.append(brand_variant)
-
-    return variants
+        return [make.lower()]
+    return [tokens[0]]
 
 
 def _camera_lookup_candidates(image_make: str, image_model: str) -> list[str]:
@@ -65,15 +36,16 @@ def _camera_lookup_candidates(image_make: str, image_model: str) -> list[str]:
     image_model = " ".join(image_model.strip().split())
 
     candidates = []
-    if image_make and image_model and image_make.lower() not in image_model.lower():
-        candidates.append(f"{image_make} {image_model}")
-
     for make_variant in _normalized_make_variants(image_make):
         if image_model and make_variant.lower() not in image_model.lower():
             candidates.append(f"{make_variant} {image_model}")
 
     if image_model:
         candidates.append(image_model)
+        # Some EXIF model tags appear in inconsistent casing; include a
+        # lowercase single-token variant (e.g. "SM-G970U1" -> "sm-g970u1").
+        if " " not in image_model:
+            candidates.append(image_model.lower())
 
     # Deduplicate while preserving order.
     return list(dict.fromkeys(candidates))

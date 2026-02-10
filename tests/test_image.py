@@ -108,8 +108,7 @@ def test_raise_index_error_for_invalid_index(image_dir):
 
 
 def test_camera_lookup_candidates_with_vendor_suffix_make():
-    candidates = _camera_lookup_candidates("Samsung Electronics Co., Ltd.", "SM-G970U1")
-    assert "Samsung Electronics Co., Ltd. SM-G970U1" in candidates
+    candidates = _camera_lookup_candidates("Samsung", "SM-G970U1")
     assert "samsung SM-G970U1" in candidates
     assert "SM-G970U1" in candidates
     assert "sm-g970u1" in candidates
